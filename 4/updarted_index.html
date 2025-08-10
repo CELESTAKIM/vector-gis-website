@@ -1,0 +1,143 @@
+# Create a table to store layer styles
+def create_styles_table():
+    conn = get_vector_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS layer_styles (
+            table_name VARCHAR PRIMARY KEY,
+            color VARCHAR(7)
+        );
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# Initialize styles table on startup
+create_styles_table()
+
+# Update or set layer color
+@app.route('/set_color/<table>', methods=['POST'])
+def set_color(table):
+    tables = get_spatial_tables()
+    if table not in tables:
+        return jsonify({'error': f'Layer {table} not found'}), 404
+    data = request.get_json()
+    color = data.get('color')
+    if not color or not color.startswith('#') or len(color) != 7:
+        return jsonify({'error': 'Invalid color format. Use #RRGGBB.'}), 400
+    try:
+        conn = get_vector_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO layer_styles (table_name, color)
+            VALUES (%s, %s)
+            ON CONFLICT (table_name) DO UPDATE
+            SET color = EXCLUDED.color;
+        """, (table, color))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'success': f'Color updated for {table}'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Get layer color
+@app.route('/get_color/<table>')
+def get_color(table):
+    try:
+        conn = get_vector_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT color FROM layer_styles WHERE table_name = %s", (table,))
+        result = cur.fetchone()
+        cur.close()
+        conn.close()
+        return jsonify({'color': result[0] if result else assign_color(table)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Merge selected features with shared boundaries
+@app.route('/merge_features', methods=['POST'])
+def merge_features():
+    data = request.get_json()
+    table = data.get('table')
+    rowids = data.get('rowids', [])
+    new_table = data.get('new_table')
+
+    tables = get_spatial_tables()
+    if table not in tables:
+        return jsonify({'error': f'Layer {table} not found'}), 404
+    if not new_table or not new_table.isidentifier():
+        return jsonify({'error': 'Invalid new table name.'}), 400
+    if new_table in tables:
+        return jsonify({'error': 'Table already exists.'}), 400
+    if len(rowids) < 2:
+        return jsonify({'error': 'Select at least two features to merge.'}), 400
+
+    geom_col = tables[table]['geom_col']
+    try:
+        conn = get_vector_connection()
+        cur = conn.cursor()
+        # Check if features share boundaries
+        cur.execute(sql.SQL("""
+            SELECT COUNT(*) > 0
+            FROM {table} a
+            JOIN {table} b ON ST_Touches(a.{geom}, b.{geom})
+            WHERE a.row_number IN %s AND b.row_number IN %s AND a.row_number < b.row_number
+        """).format(
+            table=sql.Identifier(tables[table]['schema'], table),
+            geom=sql.Identifier(geom_col)
+        ), (tuple(rowids), tuple(rowids)))
+        if not cur.fetchone()[0]:
+            return jsonify({'error': 'Selected features do not share boundaries.'}), 400
+
+        # Create new table with merged geometry
+        cur.execute(sql.SQL("""
+            CREATE TABLE {new_table} AS
+            SELECT ST_Union({geom}) AS {geom}, 
+                   MIN(row_number) AS row_number,
+                   COUNT(*) AS merged_count
+            FROM {source_table}
+            WHERE row_number IN %s
+            GROUP BY ST_Union({geom});
+        """).format(
+            new_table=sql.Identifier('public', new_table),
+            source_table=sql.Identifier(tables[table]['schema'], table),
+            geom=sql.Identifier(geom_col)
+        ), (tuple(rowids),))
+        conn.commit()
+
+        # Set SRID
+        cur.execute(sql.SQL("""
+            SELECT UpdateGeometrySRID('public', {table}, {geom}, 4326);
+        """).format(
+            table=sql.Literal(new_table),
+            geom=sql.Literal(geom_col)
+        ))
+        conn.commit()
+
+        cur.close()
+        conn.close()
+        return jsonify({'success': f'New layer "{new_table}" created from merged features!'})
+    except Exception as e:
+        return jsonify({'error': f'Failed to merge features: {str(e)}'}), 500
+
+# Download entire layer
+@app.route('/download_layer/<table>')
+def download_layer(table):
+    tables = get_spatial_tables()
+    if table not in tables:
+        return jsonify({'error': f'Layer {table} not found'}), 404
+    try:
+        query = f"SELECT * FROM {tables[table]['schema']}.{table}"
+        gdf = gpd.read_postgis(query, con=engine, geom_col=tables[table]['geom_col'])
+        tmp_dir = tempfile.mkdtemp()
+        geojson_path = os.path.join(tmp_dir, f"{table}.geojson")
+        gdf.to_file(geojson_path, driver='GeoJSON')
+        zip_path = os.path.join(tmp_dir, f"{table}.zip")
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            zipf.write(geojson_path, arcname=f"{table}.geojson")
+        return send_file(zip_path, as_attachment=True, mimetype='application/zip')
+    except Exception as e:
+        return jsonify({'error': f'Failed to download layer: {str(e)}'}), 500
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
