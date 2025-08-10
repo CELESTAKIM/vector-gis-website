@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIS Web App</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css">
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+        }
+        #map-container {
+            height: 100vh;
+            width: 100%;
+            position: relative;
+        }
+        #map {
+            height: 100%;
+            width: 100%;
+            z-index: 1;
+        }
+        .sidebar {
+            height: 100%;
+            width: 350px;
+            position: fixed;
+            top: 0;
+            right: -350px;
+            background-color: #ffffff;
+            overflow-x: hidden;
+            transition: 0.5s;
+            padding-top: 60px;
+            box-shadow: -5px 0 15px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            border-left: 1px solid #dee2e6;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            position: absolute;
+            top: 0;
+            width: 100%;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .open-btn {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            font-size: 30px;
+            cursor: pointer;
+            z-index: 1001;
+            background-color: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            width: 45px;
+            height: 45px;
+            text-align: center;
+            line-height: 45px;
+            color: #495057;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 25px;
+            font-size: 30px;
+            color: #495057;
+        }
+        .layer-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            flex-grow: 1;
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+        .layer-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        .layer-list::-webkit-scrollbar-thumb {
+            background-color: #c0c0c0;
+            border-radius: 4px;
+        }
+        .layer-item {
+            padding: 10px 20px;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            flex-direction: column;
+        }
+        .layer-item:last-child {
+            border-bottom: none;
+        }
+        .layer-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+        }
+        .layer-header h5 {
+            margin: 0;
+            font-size: 1.1rem;
+            color: #343a40;
+            font-weight: 600;
+        }
+        .layer-actions {
+            display: flex;
+            align-items: center;
+        }
+        .layer-actions .form-check-input {
+            margin-right: 10px;
+        }
+        .layer-actions .btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+            line-height: 1.5;
+            margin-left: 5px;
+        }
+        .layer-content {
+            display: none;
+            padding-top: 10px;
+            border-top: 1px solid #e9ecef;
+            margin-top: 10px;
+        }
+        .layer-content .form-label {
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        .layer-content .form-control {
+            font-size: 0.9rem;
+            height: 30px;
+            padding: 0.25rem 0.5rem;
+        }
+        .layer-content .btn-group {
+            margin-top: 10px;
+        }
+        .layer-content .btn-group .btn {
+            font-size: 0.875rem;
+        }
+        .layer-color-box {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            border: 1px solid #ccc;
+            margin-right: 8px;
+        }
+        .upload-section {
+            padding: 1rem;
+            border-top: 1px solid #dee2e6;
+        }
+        .loading .spinner {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 50px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .dataTables_wrapper {
+            font-size: 0.875rem;
+        }
+        .dataTables_wrapper .pagination .page-link {
+            font-size: 0.875rem;
+        }
+        .modal-dialog {
+            max-width: 80vw;
+        }
+        .modal-body {
+            overflow-x: auto;
+        }
+        .highlighted {
+            background-color: #fffacd !important;
+        }
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1050;
+        }
+        .toast-body {
+            font-weight: 500;
+        }
+        #context-menu {
+            display: none;
+            position: absolute;
+            z-index: 10;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+            padding: 0;
+            margin: 0;
+            list-style: none;
+            min-width: 150px;
+        }
+        #context-menu li {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: #333;
+        }
+        #context-menu li:hover {
+            background-color: #f1f1f1;
+        }
+        #merge-btn {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+
+    <span class="open-btn" onclick="openSidebar()">&#9776;</span>
+
+    <div id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+            <h4>Layers</h4>
+            <a href="javascript:void(0)" class="close-btn" onclick="closeSidebar()">&times;</a>
+        </div>
+        
+        <div class="p-3">
+            <button id="merge-btn" class="btn btn-primary" disabled><i class="fas fa-layer-group"></i> Merge Selected</button>
+        </div>
+        
+        <ul class="layer-list" id="layer-list">
+            <li class="list-group-item active-layers-heading">
+                <h5>Vector Layers</h5>
+            </li>
+            {% for table, layer in layers.items() %}
+            <li class="layer-item" data-table="{{ table }}" data-type="vector">
+                <div class="layer-header">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="toggle-{{ table }}" checked data-table="{{ table }}">
+                        <label class="form-check-label" for="toggle-{{ table }}">
+                            <span class="layer-color-box" style="background-color: {{ layer.color }};"></span>
+                            {{ layer.title }}
+                        </label>
+                    </div>
+                    <i class="fas fa-chevron-down toggle-layer-content"></i>
+                </div>
+                <div class="layer-content">
+                    <div class="mb-2">
+                        <label for="color-{{ table }}" class="form-label">Color</label>
+                        <input type="color" class="form-control form-control-sm color-picker" id="color-{{ table }}" value="{{ layer.color }}" data-table="{{ table }}">
+                    </div>
+                    <div class="btn-group w-100" role="group">
+                        <button type="button" class="btn btn-sm btn-info zoom-btn" data-table="{{ table }}"><i class="fas fa-search-plus"></i> Zoom</button>
+                        <button type="button" class="btn btn-sm btn-secondary attr-btn" data-table="{{ table }}"><i class="fas fa-table"></i> Attributes</button>
+                        <button type="button" class="btn btn-sm btn-success download-btn" data-table="{{ table }}"><i class="fas fa-download"></i> Download</button>
+                        <button type="button" class="btn btn-sm btn-danger delete-btn" data-table="{{ table }}"><i class="fas fa-trash-alt"></i> Delete</button>
+                    </div>
+                </div>
+            </li>
+            {% endfor %}
+            <li class="list-group-item active-layers-heading mt-3">
+                <h5>Raster Layers</h5>
+            </li>
+            <div id="raster-layer-list">
+                </div>
+        </ul>
+        
+        <div class="upload-section">
+            <div class="accordion" id="uploadAccordion">
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="headingOne">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="false" aria-controls="collapseOne">
+                            <i class="fas fa-upload me-2"></i> Upload Vector Layer
+                        </button>
+                    </h2>
+                    <div id="collapseOne" class="accordion-collapse collapse" aria-labelledby="headingOne" data-bs-parent="#uploadAccordion">
+                        <div class="accordion-body">
+                            <form id="upload-vector-form">
+                                <div class="mb-3">
+                                    <label for="vector-file" class="form-label">Shapefile (.zip)</label>
+                                    <input class="form-control form-control-sm" type="file" id="vector-file" name="file" accept=".zip" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="vector-tablename" class="form-label">Table Name</label>
+                                    <input type="text" class="form-control form-control-sm" id="vector-tablename" name="tablename" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm w-100">Upload</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="headingTwo">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo" aria-expanded="false" aria-controls="collapseTwo">
+                            <i class="fas fa-upload me-2"></i> Upload Raster Layer
+                        </button>
+                    </h2>
+                    <div id="collapseTwo" class="accordion-collapse collapse" aria-labelledby="headingTwo" data-bs-parent="#uploadAccordion">
+                        <div class="accordion-body">
+                            <form id="upload-raster-form">
+                                <div class="mb-3">
+                                    <label for="raster-file" class="form-label">GeoTIFF (.zip)</label>
+                                    <input class="form-control form-control-sm" type="file" id="raster-file" name="file" accept=".zip" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="raster-tablename" class="form-label">Table Name</label>
+                                    <input type="text" class="form-control form-control-sm" id="raster-tablename" name="tablename" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-sm w-100">Upload</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <ul id="context-menu" class="dropdown-menu">
+        <li class="dropdown-item" data-action="properties"><i class="fas fa-table me-2"></i> View Properties</li>
+        <li class="dropdown-item" data-action="create-layer"><i class="fas fa-plus-circle me-2"></i> Create Layer from Selection</li>
+        <li class="dropdown-item" data-action="download"><i class="fas fa-download me-2"></i> Download Selection</li>
+    </ul>
+
+    {% for table, layer in layers.items() %}
+    <div class="modal fade" id="attrModal-{{ table }}" tabindex="-1" aria-labelledby="attrModalLabel-{{ table }}" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="attrModalLabel-{{ table }}">Attributes for {{ layer.title }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="d-flex justify-content-center p-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                    <table id="attr-table-{{ table }}" class="table table-striped table-bordered w-100" style="width:100%">
+                        <thead></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="toast-container">
+        <div id="upload-toast" class="toast align-items-center text-white border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
+
+    <script>
+        const layers = {{ layers | tojson }};
+        const selectedFeatures = {};
+        let map;
+        let vectorLayers = {};
+        let rasterLayers = {};
+        let lastClickedLayer = null;
+
+        // Initialize the map
+        $(document).ready(function() {
+            initializeMap();
+            loadLayers();
+            updateMergeButton();
+        });
+
+        function initializeMap() {
+            map = L.map('map').setView([0, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            map.on('contextmenu', function (e) {
+                if (!lastClickedLayer) {
+                    $('#context-menu').hide();
+                }
+            });
+        }
+        
+        function openSidebar() {
+            document.getElementById("sidebar").style.right = "0";
+        }
+        
+        function closeSidebar() {
+            document.getElementById("sidebar").style.right = "-350px";
+        }
+
+        function loadLayers() {
+            // Load vector layers
+            for (const table in layers) {
+                const layerInfo = layers[table];
+                loadVectorLayer(table, layerInfo);
+            }
+
+            // Load raster layers
+            $.ajax({
+                url: "/raster_tables",
+                method: 'GET',
+                success: function(data) {
+                    data.forEach(rasterTable => {
+                        loadRasterLayer(rasterTable);
+                    });
+                },
+                error: function(jqXHR) {
+                    showToast('Error loading raster layers: ' + jqXHR.responseJSON.error, 'danger');
+                }
+            });
+        }
+
+        function loadVectorLayer(table, layerInfo) {
+            $.ajax({
+                url: `/data/${table}`,
+                method: 'GET',
+                success: function(data) {
+                    if (data && data.features) {
+                        const style = {
+                            color: layerInfo.color,
+                            weight: 2,
+                            opacity: 0.8,
+                            fillOpacity: layerInfo.type === 'polygon' ? 0.5 : 0,
+                            fillColor: layerInfo.type === 'polygon' ? layerInfo.color : null
+                        };
+
+                        const vectorLayer = L.geoJSON(data, {
+                            style: style,
+                            onEachFeature: function(feature, layer) {
+                                let popupContent = `<div class="p-2"><h6 class="text-primary">${layerInfo.title}</h6><table class="table table-sm table-striped"><tbody>`;
+                                for (const key in feature.properties) {
+                                    if (feature.properties.hasOwnProperty(key)) {
+                                        popupContent += `<tr><td><strong>${key}</strong></td><td>${feature.properties[key]}</td></tr>`;
+                                    }
+                                }
+                                popupContent += `</tbody></table></div>`;
+                                layer.bindPopup(popupContent);
+                                layer.on('click', function(e) {
+                                    L.DomEvent.stopPropagation(e);
+                                    const rowid = e.target.feature.properties._rowid;
+                                    const isSelected = selectedFeatures[table] && selectedFeatures[table].includes(rowid);
+                                    if (isSelected) {
+                                        selectedFeatures[table] = selectedFeatures[table].filter(id => id !== rowid);
+                                        e.target.setStyle(style);
+                                    } else {
+                                        if (!selectedFeatures[table]) selectedFeatures[table] = [];
+                                        selectedFeatures[table].push(rowid);
+                                        e.target.setStyle({
+                                            color: '#FFFF00',
+                                            weight: 3,
+                                            fillOpacity: 0.9,
+                                            fillColor: '#FFFF00'
+                                        });
+                                    }
+                                    syncTableSelection(table);
+                                    updateMergeButton();
+                                });
+                                layer.on('contextmenu', function(e) {
+                                    L.DomEvent.stopPropagation(e);
+                                    lastClickedLayer = { table: table, layer: e.target };
+                                    $('#context-menu').css({
+                                        left: e.originalEvent.clientX,
+                                        top: e.originalEvent.clientY
+                                    }).show();
+                                });
+                            }
+                        }).addTo(map);
+
+                        vectorLayers[table] = vectorLayer;
+
+                        $(`#toggle-${table}`).on('change', function() {
+                            if ($(this).is(':checked')) {
+                                vectorLayer.addTo(map);
+                            } else {
+                                map.removeLayer(vectorLayer);
+                            }
+                        });
+
+                        $(`#color-${table}`).on('change', function() {
+                            const newColor = $(this).val();
+                            const newStyle = {
+                                color: newColor,
+                                weight: 2,
+                                opacity: 0.8,
+                                fillOpacity: layerInfo.type === 'polygon' ? 0.5 : 0,
+                                fillColor: layerInfo.type === 'polygon' ? newColor : null
+                            };
+                            vectorLayer.setStyle(newStyle);
+                            
+                            const selectedIds = selectedFeatures[table] || [];
+                            vectorLayer.eachLayer(function(layer) {
+                                const rowid = layer.feature.properties._rowid;
+                                if (selectedIds.includes(rowid)) {
+                                    layer.setStyle({
+                                        color: '#FFFF00',
+                                        weight: 3,
+                                        fillOpacity: 0.9,
+                                        fillColor: '#FFFF00'
+                                    });
+                                }
+                            });
+                        });
+                        
+                        $(`.layer-item[data-table="${table}"] .toggle-layer-content`).on('click', function() {
+                            $(this).closest('.layer-item').find('.layer-content').slideToggle();
+                            $(this).toggleClass('fa-chevron-down fa-chevron-up');
+                        });
+                    }
+                },
+                error: function(jqXHR) {
+                    showToast('Error loading layer: ' + jqXHR.responseJSON.error, 'danger');
+                }
+            });
+        }
+        
+        function loadRasterLayer(rasterTable) {
+            const table = rasterTable.table_name;
+            const rasterItems = rasterTable.rasters;
+            
+            const rasterListItem = $(`
+                <li class="layer-item" data-table="${table}" data-type="raster">
+                    <div class="layer-header">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="toggle-${table}" checked data-table="${table}">
+                            <label class="form-check-label" for="toggle-${table}">${table.replace('_', ' ').title()} (Raster)</label>
+                        </div>
+                        <i class="fas fa-chevron-down toggle-layer-content"></i>
+                    </div>
+                    <div class="layer-content">
+                        <p class="mb-1">Individual Rasters:</p>
+                        <ul id="raster-list-${table}" class="list-group list-group-flush mb-2">
+                        </ul>
+                        <div class="btn-group w-100" role="group">
+                            <button type="button" class="btn btn-sm btn-danger delete-btn" data-table="${table}"><i class="fas fa-trash-alt"></i> Delete All</button>
+                        </div>
+                    </div>
+                </li>
+            `);
+            
+            $('#raster-layer-list').append(rasterListItem);
+
+            const rasterList = $(`#raster-list-${table}`);
+            
+            rasterLayers[table] = {};
+
+            rasterItems.forEach(item => {
+                const rid = item.rid;
+                const bounds = item.bounds;
+
+                const rasterItemHtml = `
+                    <li class="list-group-item d-flex justify-content-between align-items-center p-2">
+                        <span>RID: ${rid}</span>
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-info zoom-btn" data-table="${table}" data-rid="${rid}"><i class="fas fa-search-plus"></i></button>
+                            <button type="button" class="btn btn-success download-btn" data-table="${table}" data-rid="${rid}"><i class="fas fa-download"></i></button>
+                        </div>
+                    </li>
+                `;
+                rasterList.append(rasterItemHtml);
+                
+                const layerId = `${table}_${rid}`;
+                
+                $.ajax({
+                    url: `/raster_preview/${table}/${rid}`,
+                    method: 'GET',
+                    success: function(data) {
+                        const image = `data:image/png;base64,${data.image}`;
+                        const rasterLayer = L.imageOverlay(image, L.latLngBounds(data.bounds)).addTo(map);
+                        rasterLayers[layerId] = {
+                            layer: rasterLayer,
+                            bounds: L.latLngBounds(data.bounds)
+                        };
+                    },
+                    error: function(jqXHR) {
+                        console.error(`Error loading raster preview for ${table}:${rid}`, jqXHR.responseJSON.error);
+                    }
+                });
+            });
+
+            $(`#toggle-${table}`).on('change', function() {
+                if ($(this).is(':checked')) {
+                    rasterItems.forEach(item => {
+                        const layerId = `${table}_${item.rid}`;
+                        if (rasterLayers[layerId] && rasterLayers[layerId].layer) {
+                            rasterLayers[layerId].layer.addTo(map);
+                        }
+                    });
+                } else {
+                    rasterItems.forEach(item => {
+                        const layerId = `${table}_${item.rid}`;
+                        if (rasterLayers[layerId] && rasterLayers[layerId].layer) {
+                            map.removeLayer(rasterLayers[layerId].layer);
+                        }
+                    });
+                }
+            });
+
+            $(`.layer-item[data-table="${table}"] .toggle-layer-content`).on('click', function() {
+                $(this).closest('.layer-item').find('.layer-content').slideToggle();
+                $(this).toggleClass('fa-chevron-down fa-chevron-up');
+            });
+        }
+        
+        // Handle zoom buttons
+        $(document).on('click', '.zoom-btn', function() {
+            const table = $(this).data('table');
+            const rid = $(this).data('rid');
+            if (rid) {
+                const layerId = `${table}_${rid}`;
+                if (rasterLayers[layerId] && rasterLayers[layerId].bounds) {
+                    map.fitBounds(rasterLayers[layerId].bounds);
+                }
+            } else if (vectorLayers[table]) {
+                map.fitBounds(vectorLayers[table].getBounds());
+            }
+        });
+
+        // Handle attribute modal buttons
+        $(document).on('click', '.attr-btn', function() {
+            const table = $(this).data('table');
+            const modal = $(`#attrModal-${table}`);
+            const modalBody = modal.find('.modal-body');
+            const tableElement = $(`#attr-table-${table}`);
+
+            modalBody.addClass('loading').empty().append('<div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>');
+            modal.modal('show');
+
+            if (!$.fn.DataTable.isDataTable(`#attr-table-${table}`)) {
+                $.ajax({
+                    url: `/attributes/${table}`,
+                    method: 'GET',
+                    dataType: 'json',
+                    async: true,
+                    success: function(data) {
+                        modalBody.removeClass('loading').empty();
+                        tableElement.empty();
+                        const columns = [
+                            { title: '<i class="fas fa-check-square"></i>', data: null, render: function(data, type, row) {
+                                return `<input type="checkbox" class="highlight-checkbox" data-rowid="${row._rowid}">`;
+                            }, orderable: false, width: '5%' },
+                            ...data.columns.map(col => ({ title: col, data: col, orderable: true }))
+                        ];
+
+                        const dt = tableElement.DataTable({
+                            data: data.rows,
+                            columns: columns,
+                            pageLength: 10,
+                            scrollY: '400px',
+                            scrollCollapse: true,
+                            paging: true,
+                            dom: 't<"row"<"col-sm-12 col-md-6"i><"col-sm-12 col-md-6"p>>',
+                            language: {
+                                zeroRecords: "No matching records found",
+                                info: "Showing _START_ to _END_ of _TOTAL_ entries"
+                            },
+                            initComplete: function() {
+                                modalBody.append(tableElement);
+                                $(`<div class="search-container mb-3"><input type="text" class="form-control search-input" id="search-${table}" placeholder="Search attributes..."></div>`).insertBefore(tableElement);
+                                $(`<button class="btn btn-sm btn-outline-primary highlight-all-btn mb-3" id="highlight-all-${table}"><i class="fas fa-check-double"></i> Highlight All</button>`).insertBefore(tableElement);
+                            },
+                            deferRender: true,
+                            order: [],
+                            searching: false
+                        });
+
+                        $(`#search-${table}`).on('keyup', function() {
+                            dt.search(this.value).draw();
+                        });
+
+                        tableElement.on('change', '.highlight-checkbox', function() {
+                            const rowid = $(this).data('rowid');
+                            const row = dt.row($(this).closest('tr')).data();
+                            if ($(this).is(':checked')) {
+                                if (!selectedFeatures[table]) selectedFeatures[table] = [];
+                                selectedFeatures[table].push(rowid);
+                                $(this).closest('tr').addClass('highlighted');
+                            } else {
+                                selectedFeatures[table] = selectedFeatures[table].filter(id => id !== rowid);
+                                $(this).closest('tr').removeClass('highlighted');
+                            }
+                            syncMapSelection(table);
+                            updateMergeButton();
+                        });
+
+                        $(`#highlight-all-${table}`).on('click', function() {
+                            dt.rows().every(function() {
+                                const checkbox = $(this.node()).find('.highlight-checkbox');
+                                if (!checkbox.is(':checked')) {
+                                    checkbox.prop('checked', true).trigger('change');
+                                }
+                            });
+                        });
+                        
+                        syncTableSelection(table);
+                    },
+                    error: function(jqXHR) {
+                        modalBody.removeClass('loading').html('<p class="text-danger">Error loading attributes: ' + jqXHR.responseJSON.error + '</p>');
+                    }
+                });
+            } else {
+                modalBody.removeClass('loading').empty().append(`<div class="search-container mb-3"><input type="text" class="form-control search-input" id="search-${table}" placeholder="Search attributes..."></div>`);
+                modalBody.append($(`<button class="btn btn-sm btn-outline-primary highlight-all-btn mb-3" id="highlight-all-${table}"><i class="fas fa-check-double"></i> Highlight All</button>`));
+                modalBody.append(tableElement);
+                $(`#search-${table}`).off('keyup').on('keyup', function() {
+                    $(`#attr-table-${table}`).DataTable().search(this.value).draw();
+                });
+                syncTableSelection(table);
+            }
+        });
+
+        function syncMapSelection(table) {
+            if (vectorLayers[table]) {
+                const type = layers[table].type;
+                vectorLayers[table].eachLayer(function(layer) {
+                    const rowid = layer.feature.properties._rowid || layer.feature.id;
+                    if (selectedFeatures[table] && selectedFeatures[table].includes(rowid)) {
+                        layer.setStyle({
+                            color: '#FFFF00',
+                            weight: 3,
+                            fillOpacity: 0.9,
+                            fillColor: '#FFFF00'
+                        });
+                    } else {
+                        layer.setStyle({
+                            color: $(`#color-${table}`).val(),
+                            weight: 2,
+                            fillOpacity: type === 'polygon' ? 0.5 : 0,
+                            fillColor: type === 'polygon' ? $(`#color-${table}`).val() : null
+                        });
+                    }
+                });
+                vectorLayers[table].bringToFront();
+            }
+        }
+
+        function syncTableSelection(table) {
+            const dt = $(`#attr-table-${table}`).DataTable();
+            if (dt) {
+                dt.rows().every(function() {
+                    const rowid = this.data()._rowid;
+                    const checkbox = $(this.node()).find('.highlight-checkbox');
+                    if (selectedFeatures[table] && selectedFeatures[table].includes(rowid)) {
+                        checkbox.prop('checked', true);
+                        $(this.node()).addClass('highlighted');
+                    } else {
+                        checkbox.prop('checked', false);
+                        $(this.node()).removeClass('highlighted');
+                    }
+                });
+            }
+        }
+
+        $(document).on('click', '.delete-btn', function() {
+            const table = $(this).data('table');
+            const type = $(this).closest('.layer-item').data('type');
+            if (confirm(`Are you sure you want to delete the layer "${table}"? This action cannot be undone.`)) {
+                let url = '';
+                if (type === 'vector') {
+                    url = `/delete/${table}`;
+                } else if (type === 'raster') {
+                    url = `/delete_raster/${table}`;
+                }
+                
+                $.ajax({
+                    url: url,
+                    type: 'POST',
+                    success: function(response) {
+                        showToast(response.success, 'success');
+                        setTimeout(() => location.reload(), 2000);
+                    },
+                    error: function(jqXHR) {
+                        showToast('Error deleting layer: ' + jqXHR.responseJSON.error, 'danger');
+                    }
+                });
+            }
+        });
+
+        $(document).on('click', '.download-btn', function() {
+            const table = $(this).data('table');
+            const rid = $(this).data('rid');
+            if (rid) {
+                window.location.href = `/raster_download/${table}/${rid}`;
+            } else {
+                $.ajax({
+                    url: '/download',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ layer: table, selected: [] }),
+                    xhrFields: { responseType: 'blob' },
+                    success: function(data) {
+                        const blob = new Blob([data], { type: 'application/zip' });
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${table}_full.zip`;
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                    },
+                    error: function(jqXHR) {
+                        showToast('Error downloading layer: ' + jqXHR.responseJSON.error, 'danger');
+                    }
+                });
+            }
+        });
+
+        $('#merge-btn').click(function() {
+            const layersToMerge = Object.keys(selectedFeatures).map(table => ({
+                layer: table,
+                selected: selectedFeatures[table]
+            })).filter(layer => layer.selected.length > 0);
+
+            if (layersToMerge.length < 1) {
+                showToast('Please select features from at least one layer to merge.', 'warning');
+                return;
+            }
+
+            $.ajax({
+                url: '/merge_layers',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ layers: layersToMerge }),
+                xhrFields: { responseType: 'blob' },
+                success: function(data) {
+                    const blob = new Blob([data], { type: 'application/zip' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'merged_selection.zip';
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                },
+                error: function(jqXHR) {
+                    showToast('Error merging layers: ' + jqXHR.responseJSON.error, 'danger');
+                }
+            });
+        });
+
+        function updateMergeButton() {
+            const hasSelection = Object.values(selectedFeatures).some(arr => arr.length > 0);
+            $('#merge-btn').prop('disabled', !hasSelection);
+        }
+
+        $('#upload-vector-form').submit(function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            $.ajax({
+                url: '/upload_vector',
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(response) {
+                    showToast(response.success, 'success');
+                    setTimeout(() => location.reload(), 2000);
+                },
+                error: function(jqXHR) {
+                    showToast(jqXHR.responseJSON.error, 'danger');
+                }
+            });
+        });
+
+        $('#upload-raster-form').submit(function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            $.ajax({
+                url: '/upload_raster',
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(response) {
+                    showToast(response.success, 'success');
+                    setTimeout(() => location.reload(), 2000);
+                },
+                error: function(jqXHR) {
+                    showToast(jqXHR.responseJSON.error, 'danger');
+                }
+            });
+        });
+
+        function showToast(message, type) {
+            const toast = $('#upload-toast');
+            toast.removeClass('bg-success bg-danger bg-warning').addClass(`bg-${type}`);
+            toast.find('.toast-body').text(message);
+            const bootstrapToast = new bootstrap.Toast(toast[0]);
+            bootstrapToast.show();
+        }
+
+        $(document).on('click', function(e) {
+            if (!$(e.target).closest('#context-menu').length) {
+                $('#context-menu').hide();
+                lastClickedLayer = null;
+            }
+        });
+
+        $('#context-menu li').on('click', function(e) {
+            e.preventDefault();
+            const action = $(this).data('action');
+            if (lastClickedLayer) {
+                const table = lastClickedLayer.table;
+                const layer = lastClickedLayer.layer;
+                const rowid = layer.feature.properties._rowid || layer.feature.id;
+
+                if (action === 'properties') {
+                    $(`#attrModal-${table}`).modal('show');
+                } else if (action === 'create-layer') {
+                    createLayerFromSelection(table, [rowid]);
+                } else if (action === 'download') {
+                    downloadSelection(table, [rowid]);
+                }
+            }
+            $('#context-menu').hide();
+        });
+
+        function createLayerFromSelection(table, rowids) {
+            if (!vectorLayers[table] || !rowids.length) return;
+
+            const newTable = prompt('Enter a new table name for the selected feature:', `new_${table}_${Date.now()}`);
+            if (!newTable || !newTable.match(/^[a-zA-Z0-9_]+$/)) {
+                showToast('Invalid table name. Use only letters, digits, and underscores.', 'warning');
+                return;
+            }
+
+            $.ajax({
+                url: '/create_layer',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ source_table: table, new_table: newTable, rowids: rowids }),
+                success: function(response) {
+                    showToast(response.success, 'success');
+                    setTimeout(() => location.reload(), 2000);
+                },
+                error: function(jqXHR) {
+                    showToast('Error creating layer: ' + jqXHR.responseJSON.error, 'danger');
+                }
+            });
+        }
+
+        function downloadSelection(table, rowids) {
+            $.ajax({
+                url: '/download',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ layer: table, selected: rowids }),
+                xhrFields: { responseType: 'blob' },
+                success: function(data) {
+                    const blob = new Blob([data], { type: 'application/zip' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${table}_selected_${Date.now()}.zip`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                },
+                error: function(jqXHR) {
+                    showToast('Error downloading selection: ' + jqXHR.responseJSON.error, 'danger');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
