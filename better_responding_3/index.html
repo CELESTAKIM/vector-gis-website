@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIS Web Portal</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; }
+        .gis-container { display: flex; height: 100vh; overflow: hidden; }
+        #sidebar { width: 350px; background-color: #fff; box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; z-index: 1000; }
+        .sidebar-header { padding: 1rem; text-align: center; border-bottom: 1px solid #e0e0e0; background-color: #1a73e8; color: white; }
+        .layer-list-container { flex-grow: 1; overflow-y: auto; padding: 1rem; }
+        .layer-item { display: flex; align-items: center; padding: 0.5rem; cursor: pointer; border-radius: 5px; transition: background-color 0.2s ease; position: relative; }
+        .layer-item:hover { background-color: #f1f3f4; }
+        .layer-item.active { background-color: #e8f0fe; }
+        .layer-item .form-check-input { margin-right: 1rem; }
+        .layer-item .color-ramp-control, .layer-item .context-menu-trigger { margin-left: auto; }
+        .layer-item .color-ramp-control { display: none; }
+        #map { flex-grow: 1; height: 100%; z-index: 1; }
+        #attribute-table-panel { position: absolute; bottom: 0; left: 0; right: 0; max-height: 400px; background-color: #fff; box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1); z-index: 999; display: none; flex-direction: column; border-top-left-radius: 10px; border-top-right-radius: 10px; overflow: hidden; }
+        #attribute-table-panel .header { padding: 0.5rem 1rem; background-color: #f7f7f7; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
+        #attribute-table-panel .content { flex-grow: 1; overflow: auto; }
+        #attribute-table-panel table { width: 100%; border-collapse: collapse; }
+        #attribute-table-panel th, #attribute-table-panel td { padding: 0.5rem; border: 1px solid #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #attribute-table-panel th { background-color: #e9ecef; position: sticky; top: 0; z-index: 1; }
+        #attribute-table-panel tr.selected { background-color: #d1e7ff !important; }
+        .context-menu { display: none; position: absolute; z-index: 1001; background-color: white; border: 1px solid #ccc; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); padding: 5px 0; }
+        .context-menu-item { padding: 8px 12px; cursor: pointer; transition: background-color 0.2s; }
+        .context-menu-item:hover { background-color: #f1f1f1; }
+        .color-ramp-options { display: none; position: absolute; background-color: white; border: 1px solid #ccc; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 1001; padding: 5px; }
+        .color-ramp-options .color-box { width: 25px; height: 25px; border: 1px solid #ccc; margin: 2px; cursor: pointer; display: inline-block; }
+        .form-check-input:checked { background-color: #0d6efd; border-color: #0d6efd; }
+    </style>
+</head>
+<body>
+
+    <div class="gis-container">
+        <div id="sidebar">
+            <div class="sidebar-header">
+                <h3>GIS Web Portal</h3>
+            </div>
+            
+            <div class="layer-list-container">
+                <h5>Layers</h5>
+                <ul class="list-group" id="layer-list">
+                    {% for name, layer in layers.items() %}
+                        <li class="list-group-item layer-item" data-name="{{ name }}" data-type="{{ layer['type'] }}" data-db="{{ layer['db'] }}" data-color="{{ layer.get('color', '') }}">
+                            <input class="form-check-input me-2" type="checkbox" value="" id="checkbox-{{ name }}">
+                            <label class="form-check-label flex-grow-1" for="checkbox-{{ name }}">
+                                {{ layer['title'] }}
+                            </label>
+                            
+                            {% if layer['type'] != 'raster' %}
+                                <div class="color-ramp-control me-2" style="display: none;">
+                                    <i class="fa-solid fa-palette text-secondary" style="color: {{ layer['color'] }};"></i>
+                                </div>
+                            {% endif %}
+                            
+                            <div class="context-menu-trigger">
+                                <i class="fas fa-ellipsis-v text-secondary"></i>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            
+            <hr>
+            
+            <div class="p-3">
+                <h5>Upload New Layers</h5>
+                <div class="mb-3">
+                    <label for="vector-upload" class="form-label">Upload Vector (Shapefile)</label>
+                    <input class="form-control" type="file" id="vector-upload" accept=".zip">
+                    <input type="text" class="form-control mt-2" id="vector-tablename" placeholder="New Table Name">
+                    <button class="btn btn-primary btn-sm mt-2" id="upload-vector-btn">Upload</button>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="raster-upload" class="form-label">Upload Raster (GeoTIFF)</label>
+                    <input class="form-control" type="file" id="raster-upload" accept=".zip">
+                    <input type="text" class="form-control mt-2" id="raster-tablename" placeholder="New Table Name">
+                    <button class="btn btn-primary btn-sm mt-2" id="upload-raster-btn">Upload</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="map"></div>
+        
+        <div id="attribute-table-panel">
+            <div class="header">
+                <span id="attribute-table-title">Attribute Table</span>
+                <div>
+                    <button class="btn btn-sm btn-info me-2" id="download-selected-btn" disabled>Download Selected</button>
+                    <button class="btn btn-sm btn-success me-2" id="create-layer-btn" disabled>Create Layer</button>
+                    <button class="btn-close" aria-label="Close" id="close-attribute-table"></button>
+                </div>
+            </div>
+            <div class="content">
+                <table class="table table-striped table-hover table-sm">
+                    <thead>
+                        <tr id="attribute-table-header"></tr>
+                    </thead>
+                    <tbody id="attribute-table-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="context-menu" id="layer-context-menu">
+            <div class="context-menu-item" id="context-info">Attribute Info</div>
+            <div class="context-menu-item" id="context-download">Download All</div>
+            <div class="context-menu-item" id="context-delete">Delete Layer</div>
+        </div>
+        
+        <div class="color-ramp-options" id="color-ramp-options">
+            <div class="color-box" style="background-color: #e6194b;" data-color="#e6194b"></div>
+            <div class="color-box" style="background-color: #3cb44b;" data-color="#3cb44b"></div>
+            <div class="color-box" style="background-color: #ffe119;" data-color="#ffe119"></div>
+            <div class="color-box" style="background-color: #4363d8;" data-color="#4363d8"></div>
+            <div class="color-box" style="background-color: #f58231;" data-color="#f58231"></div>
+            <div class="color-box" style="background-color: #911eb4;" data-color="#911eb4"></div>
+            <div class="color-box" style="background-color: #46f0f0;" data-color="#46f0f0"></div>
+            <div class="color-box" style="background-color: #f032e6;" data-color="#f032e6"></div>
+            <div class="color-box" style="background-color: #bcf60c;" data-color="#bcf60c"></div>
+        </div>
+        
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        $(document).ready(function() {
+            // Initialize the Leaflet map centered on a global view
+            const map = L.map('map').setView([0, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            const activeLayers = {};
+            let attributeTableLayerName = null;
+            let selectedFeatures = new Set();
+            let highlightedLayers = {};
+            const layerStyle = {
+                color: '#1a73e8',
+                weight: 2,
+                opacity: 0.7,
+                fillColor: '#1a73e8',
+                fillOpacity: 0.3
+            };
+
+            // --- Layer Management Functions ---
+            function toggleLayer(layerName, layerType, layerDB, layerColor, isChecked) {
+                if (isChecked) {
+                    if (layerType === 'raster') {
+                        // Add raster layer (tile preview)
+                        if (!activeLayers[layerName]) {
+                             const rasterTileUrl = `/raster_tile/${layerName}/{z}/{x}/{y}.png`;
+                             const rasterLayer = L.tileLayer(rasterTileUrl, {
+                                 bounds: [[-90, -180], [90, 180]],
+                                 minZoom: 0,
+                                 maxZoom: 18,
+                                 opacity: 0.8
+                             }).addTo(map);
+                             activeLayers[layerName] = rasterLayer;
+                        } else {
+                            activeLayers[layerName].addTo(map);
+                        }
+                    } else {
+                        // Add vector layer
+                        const style = { ...layerStyle, color: layerColor, fillColor: layerColor };
+                        if (activeLayers[layerName]) {
+                            activeLayers[layerName].addTo(map);
+                        } else {
+                            fetch(`/data/${layerName}`)
+                                .then(response => response.json())
+                                .then(data => {
+                                    const geojsonLayer = L.geoJSON(data, {
+                                        style: style,
+                                        onEachFeature: function(feature, layer) {
+                                            layer.on('click', function(e) {
+                                                const rowid = feature.properties._rowid;
+                                                const rowElement = $(`#attribute-table-body tr[data-rowid="${rowid}"]`);
+                                                const checkbox = rowElement.find('.select-row-checkbox');
+                                                
+                                                if (selectedFeatures.has(rowid)) {
+                                                    selectedFeatures.delete(rowid);
+                                                    rowElement.removeClass('selected');
+                                                    checkbox.prop('checked', false);
+                                                    layer.setStyle(style);
+                                                } else {
+                                                    selectedFeatures.add(rowid);
+                                                    rowElement.addClass('selected');
+                                                    checkbox.prop('checked', true);
+                                                    layer.setStyle({ ...style, weight: 4, fillOpacity: 0.6 });
+                                                }
+                                                updateAttributeTableSelection();
+                                            });
+                                        }
+                                    }).addTo(map);
+                                    activeLayers[layerName] = geojsonLayer;
+                                    map.fitBounds(geojsonLayer.getBounds());
+                                })
+                                .catch(error => {
+                                    console.error(`Error loading layer ${layerName}:`, error);
+                                    alert(`Failed to load layer ${layerName}.`);
+                                });
+                        }
+                    }
+                } else {
+                    // Remove layer from the map
+                    if (activeLayers[layerName]) {
+                        map.removeLayer(activeLayers[layerName]);
+                    }
+                    if (layerName === attributeTableLayerName) {
+                        $('#attribute-table-panel').hide();
+                        attributeTableLayerName = null;
+                        selectedFeatures.clear();
+                    }
+                }
+            }
+            
+            function updateVectorLayerStyle(layerName, newColor) {
+                if (activeLayers[layerName]) {
+                    const style = { ...layerStyle, color: newColor, fillColor: newColor };
+                    activeLayers[layerName].setStyle(style);
+                    $(`.layer-item[data-name="${layerName}"] .fa-palette`).css('color', newColor);
+                    $(`.layer-item[data-name="${layerName}"]`).data('color', newColor);
+                }
+            }
+            
+            function showAttributeTable(layerName) {
+                attributeTableLayerName = layerName;
+                selectedFeatures.clear();
+                
+                $('#attribute-table-title').text(`Attribute Table: ${layerName}`);
+                $('#attribute-table-header').empty();
+                $('#attribute-table-body').empty().text('Loading...');
+                
+                $('#attribute-table-panel').show();
+                
+                fetch(`/attributes/${layerName}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            alert(data.error);
+                            $('#attribute-table-body').text('Failed to load data.');
+                            return;
+                        }
+                        
+                        $('#attribute-table-header').empty();
+                        $('#attribute-table-body').empty();
+                        
+                        // Create header row
+                        const headerRow = '<th><input type="checkbox" id="select-all-checkbox"></th>' + data.columns.map(col => `<th>${col}</th>`).join('');
+                        $('#attribute-table-header').append(headerRow);
+                        
+                        // Create data rows
+                        data.rows.forEach(row => {
+                            const rowid = row['_rowid'];
+                            const rowElement = `<tr data-rowid="${rowid}"><td><input type="checkbox" class="select-row-checkbox" data-rowid="${rowid}"></td>` +
+                                data.columns.map(col => `<td>${row[col] || ''}</td>`).join('') +
+                                '</tr>';
+                            $('#attribute-table-body').append(rowElement);
+                        });
+                        updateAttributeTableSelection();
+                    })
+                    .catch(error => {
+                        console.error('Error fetching attributes:', error);
+                        $('#attribute-table-body').text('Failed to load data.');
+                    });
+            }
+            
+            function updateAttributeTableSelection() {
+                const count = selectedFeatures.size;
+                $('#download-selected-btn').prop('disabled', count === 0);
+                $('#create-layer-btn').prop('disabled', count === 0);
+                $('#download-selected-btn').text(`Download Selected (${count})`);
+                $('#create-layer-btn').text(`Create Layer (${count})`);
+            }
+            
+            // --- Event Handlers ---
+            $('#layer-list').on('click', '.layer-item', function(e) {
+                const layerItem = $(this);
+                const layerName = layerItem.data('name');
+                const layerType = layerItem.data('type');
+                const layerDB = layerItem.data('db');
+                const layerColor = layerItem.data('color');
+                const checkbox = layerItem.find('.form-check-input');
+
+                if ($(e.target).closest('.context-menu-trigger, .color-ramp-control').length) {
+                    e.stopPropagation();
+                    return;
+                }
+                
+                checkbox.prop('checked', !checkbox.prop('checked'));
+                const isChecked = checkbox.prop('checked');
+                
+                layerItem.toggleClass('active', isChecked);
+                
+                if (layerType !== 'raster') {
+                    layerItem.find('.color-ramp-control').toggle(isChecked);
+                }
+
+                toggleLayer(layerName, layerType, layerDB, layerColor, isChecked);
+            });
+            
+            $('#attribute-table-body').on('click', 'tr', function() {
+                const rowid = $(this).data('rowid');
+                const checkbox = $(this).find('.select-row-checkbox');
+                
+                checkbox.prop('checked', !checkbox.prop('checked'));
+                $(this).toggleClass('selected');
+                
+                if (checkbox.prop('checked')) {
+                    selectedFeatures.add(rowid);
+                } else {
+                    selectedFeatures.delete(rowid);
+                }
+                
+                updateAttributeTableSelection();
+            });
+            
+            $('#attribute-table-panel').on('change', '#select-all-checkbox', function() {
+                const isChecked = $(this).prop('checked');
+                $('.select-row-checkbox').prop('checked', isChecked);
+                
+                selectedFeatures.clear();
+                if (isChecked) {
+                    $('#attribute-table-body tr').addClass('selected');
+                    $('.select-row-checkbox').each(function() {
+                        selectedFeatures.add($(this).data('rowid'));
+                    });
+                } else {
+                    $('#attribute-table-body tr').removeClass('selected');
+                }
+                updateAttributeTableSelection();
+            });
+
+            $('#close-attribute-table').on('click', function() {
+                $('#attribute-table-panel').hide();
+                attributeTableLayerName = null;
+                selectedFeatures.clear();
+            });
+
+            let contextLayerName = null;
+            $('#layer-list').on('contextmenu', '.layer-item', function(e) {
+                e.preventDefault();
+                contextLayerName = $(this).data('name');
+                const contextMenu = $('#layer-context-menu');
+                contextMenu.css({ display: 'block', left: e.pageX, top: e.pageY });
+            });
+
+            $(document).on('click', function() {
+                $('#layer-context-menu').hide();
+                $('#color-ramp-options').hide();
+            });
+
+            $('#context-info').on('click', function() {
+                if (contextLayerName) {
+                    const layerType = $(`#layer-list .layer-item[data-name="${contextLayerName}"]`).data('type');
+                    if (layerType === 'raster') {
+                        alert('Attribute info is not available for raster layers.');
+                        return;
+                    }
+                    showAttributeTable(contextLayerName);
+                }
+            });
+            
+            $('#context-download').on('click', function() {
+                if (contextLayerName) {
+                    const layerType = $(`#layer-list .layer-item[data-name="${contextLayerName}"]`).data('type');
+                    if (layerType === 'raster') {
+                        window.location.href = `/raster_download/${contextLayerName}`;
+                    } else {
+                        // For vector, download all features
+                        fetch('/download', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ layer: contextLayerName, selected: [...Array(10001).keys()].slice(1) })
+                        }).then(response => {
+                            if (response.ok) return response.blob();
+                            return response.json().then(errorData => { alert(errorData.error); throw new Error(errorData.error); });
+                        }).then(blob => {
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a'); a.style.display = 'none'; a.href = url;
+                            a.download = `${contextLayerName}_all.zip`; document.body.appendChild(a);
+                            a.click(); window.URL.revokeObjectURL(url);
+                        }).catch(e => console.error('Download failed:', e));
+                    }
+                }
+            });
+
+            $('#context-delete').on('click', function() {
+                if (contextLayerName && confirm(`Are you sure you want to delete the layer "${contextLayerName}"?`)) {
+                    const layerItem = $(`#layer-list .layer-item[data-name="${contextLayerName}"]`);
+                    const layerDB = layerItem.data('db');
+                    
+                    fetch(`/delete_layer/${layerDB}/${contextLayerName}`, { method: 'POST' })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                alert(data.success);
+                                if (activeLayers[contextLayerName]) {
+                                    map.removeLayer(activeLayers[contextLayerName]);
+                                    delete activeLayers[contextLayerName];
+                                }
+                                layerItem.remove();
+                            } else {
+                                alert(data.error);
+                            }
+                        })
+                        .catch(e => alert('Failed to delete layer.'));
+                }
+            });
+            
+            $('#layer-list').on('click', '.color-ramp-control', function(e) {
+                e.stopPropagation();
+                const layerItem = $(this).closest('.layer-item');
+                const layerName = layerItem.data('name');
+                const optionsMenu = $('#color-ramp-options');
+                
+                optionsMenu.data('layer', layerName);
+                optionsMenu.css({ display: 'flex', flexWrap: 'wrap', top: e.pageY, left: e.pageX });
+            });
+            
+            $('#color-ramp-options').on('click', '.color-box', function() {
+                const layerName = $('#color-ramp-options').data('layer');
+                const newColor = $(this).data('color');
+                updateVectorLayerStyle(layerName, newColor);
+                $('#color-ramp-options').hide();
+            });
+
+            $('#download-selected-btn').on('click', function() {
+                if (attributeTableLayerName && selectedFeatures.size > 0) {
+                    fetch('/download', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ layer: attributeTableLayerName, selected: Array.from(selectedFeatures) })
+                    }).then(response => {
+                        if (response.ok) return response.blob();
+                        return response.json().then(errorData => { alert(errorData.error); throw new Error(errorData.error); });
+                    }).then(blob => {
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a'); a.style.display = 'none'; a.href = url;
+                        a.download = `${attributeTableLayerName}_selection.zip`; document.body.appendChild(a);
+                        a.click(); window.URL.revokeObjectURL(url);
+                    }).catch(e => console.error('Download failed:', e));
+                }
+            });
+            
+            $('#create-layer-btn').on('click', function() {
+                 if (attributeTableLayerName && selectedFeatures.size > 0) {
+                     const newTableName = prompt("Enter a name for the new layer:");
+                     if (newTableName) {
+                         fetch('/create_layer', {
+                             method: 'POST',
+                             headers: { 'Content-Type': 'application/json' },
+                             body: JSON.stringify({
+                                 source_table: attributeTableLayerName,
+                                 new_table: newTableName,
+                                 rowids: Array.from(selectedFeatures)
+                             })
+                         }).then(response => response.json())
+                         .then(data => {
+                             alert(data.success || data.error);
+                             if (data.success) {
+                                 window.location.reload();
+                             }
+                         })
+                         .catch(e => alert('Failed to create new layer.'));
+                     }
+                 }
+             });
+             
+            // Upload vector layer button
+            $('#upload-vector-btn').on('click', function() {
+                const fileInput = $('#vector-upload')[0];
+                const newTableName = $('#vector-tablename').val();
+                if (!fileInput.files.length) { alert('Please select a file to upload.'); return; }
+                if (!newTableName) { alert('Please enter a name for the new table.'); return; }
+
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                formData.append('tablename', newTableName);
+                
+                fetch('/upload_vector', { method: 'POST', body: formData })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.success || data.error);
+                    if (data.success) { window.location.reload(); }
+                })
+                .catch(e => alert('Upload failed.'));
+            });
+
+            // Upload raster layer button
+            $('#upload-raster-btn').on('click', function() {
+                const fileInput = $('#raster-upload')[0];
+                const newTableName = $('#raster-tablename').val();
+                if (!fileInput.files.length) { alert('Please select a file to upload.'); return; }
+                if (!newTableName) { alert('Please enter a name for the new table.'); return; }
+
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                formData.append('tablename', newTableName);
+                
+                fetch('/upload_raster', { method: 'POST', body: formData })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.success || data.error);
+                    if (data.success) { window.location.reload(); }
+                })
+                .catch(e => alert('Upload failed.'));
+            });
+        });
+    </script>
+</body>
+</html>
